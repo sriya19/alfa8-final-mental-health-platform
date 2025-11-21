@@ -1,0 +1,134 @@
+services:
+  # PostgreSQL Database with pgvector extension
+  postgres:
+    container_name: pg
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_DB: mh_catalog
+      POSTGRES_USER: app_user
+      POSTGRES_PASSWORD: app_user
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - mental-health-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app_user -d mh_catalog"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # MinIO Object Storage
+  minio:
+    container_name: minio-1
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "9000:9000"  # API (primary)
+      - "9001:9001"  # Console
+    volumes:
+      - minio_data:/data
+    networks:
+      - mental-health-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+
+  # Create MinIO bucket on startup
+  create-bucket:
+    container_name: create-bucket-1
+    image: minio/mc:latest
+    depends_on:
+      - minio
+    entrypoint: >
+      /bin/sh -c "
+      sleep 5;
+      /usr/bin/mc config host add minio http://minio-1:9000 minioadmin minioadmin;
+      /usr/bin/mc mb minio/mh-raw --ignore-existing;
+      /usr/bin/mc anonymous set download minio/mh-raw;
+      echo 'MinIO bucket mh-raw created successfully';
+      exit 0;
+      "
+    networks:
+      - mental-health-net
+
+  # FastAPI Backend
+  backend:
+    container_name: backend
+    image: mental-health-platform:backend
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    environment:
+      # Database connection (use container name 'pg')
+      POSTGRES_HOST: pg
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: mh_catalog
+      POSTGRES_USER: app_user
+      POSTGRES_PASSWORD: app_user
+      
+      # MinIO connection (use container name 'minio-1')
+      S3_ENDPOINT: http://minio-1:9000
+      S3_ACCESS_KEY: minioadmin
+      S3_SECRET_KEY: minioadmin
+      S3_BUCKET: mh-raw
+      
+      # OpenAI (pass from host .env)
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: gpt-4o-mini
+      
+      # Socrata
+      SOCRATA_APP_TOKEN: ${SOCRATA_APP_TOKEN:-}
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    networks:
+      - mental-health-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
+  # Streamlit UI (optional - uncomment to run in Docker)
+  # streamlit:
+  #   container_name: streamlit-ui
+  #   build:
+  #     context: ./ui_app
+  #     dockerfile: Dockerfile
+  #   environment:
+  #     BACKEND_URL: http://backend:8000
+  #     POSTGRES_HOST: pg
+  #     POSTGRES_PORT: 5432
+  #     POSTGRES_DB: mh_catalog
+  #     POSTGRES_USER: app_user
+  #     POSTGRES_PASSWORD: app_user
+  #   ports:
+  #     - "8501:8501"
+  #   depends_on:
+  #     - backend
+  #   networks:
+  #     - mental-health-net
+  #   restart: unless-stopped
+
+networks:
+  mental-health-net:
+    driver: bridge
+
+volumes:
+  postgres_data:
+    driver: local
+  minio_data:
+    driver: local

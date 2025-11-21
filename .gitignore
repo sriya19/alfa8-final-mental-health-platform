@@ -1,0 +1,28 @@
+# Python venvs
+venv/
+.venv/
+
+# Python cache / compiled files
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Jupyter / temp logs
+.ipynb_checkpoints/
+*.log
+
+# Data / artifacts
+*.sqlite3
+*.db
+*.parquet
+
+# Env / secrets
+.env
+*.env
+
+# OS / editor junk
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
