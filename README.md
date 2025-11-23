@@ -83,7 +83,7 @@ This platform provides a unified interface for working with mental health data f
 - OpenAI API key (for RAG and LLM features)
 
 ## Installation
-
+Please note that - index_cdc_mental_health_intelligent.py will take long to run. So you can skip that step while running and run the remaning 2 indexing scripts.
 ### Windows
 
 1. **Install Docker Desktop**
