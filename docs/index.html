@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Mental Health Intelligence Platform</title>
+<meta name="description" content="An AI-powered platform that unifies CDC and SAMHSA mental health datasets and lets anyone query them in natural language." />
+<style>
+  :root {
+    --bg: #0b1020;
+    --bg-2: #111733;
+    --fg: #e7ecff;
+    --muted: #9aa3c7;
+    --accent: #7c5cff;
+    --accent-2: #25d0a4;
+    --card: #151c3a;
+    --border: #232b54;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: radial-gradient(1200px 800px at 80% -10%, #1b2566 0%, transparent 60%),
+                radial-gradient(900px 600px at -10% 30%, #2a1c5a 0%, transparent 55%),
+                var(--bg);
+    color: var(--fg);
+    line-height: 1.55;
+  }
+  .container { max-width: 1100px; margin: 0 auto; padding: 0 24px; }
+  header { padding: 28px 0; display: flex; align-items: center; justify-content: space-between; }
+  .brand { font-weight: 700; letter-spacing: 0.3px; font-size: 18px; }
+  .brand span { color: var(--accent); }
+  nav a { color: var(--muted); text-decoration: none; margin-left: 22px; font-size: 14px; }
+  nav a:hover { color: var(--fg); }
+
+  .hero { padding: 60px 0 40px; }
+  .pill {
+    display: inline-block; padding: 6px 12px; border: 1px solid var(--border);
+    border-radius: 999px; color: var(--muted); font-size: 12px; margin-bottom: 18px;
+    background: rgba(255,255,255,0.02);
+  }
+  h1 {
+    font-size: clamp(34px, 5vw, 56px); line-height: 1.1; margin: 0 0 18px;
+    background: linear-gradient(90deg, #fff 0%, #c8c2ff 60%, #7c5cff 100%);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .lede { font-size: 18px; color: var(--muted); max-width: 760px; }
+  .cta { margin-top: 28px; display: flex; gap: 12px; flex-wrap: wrap; }
+  .btn {
+    display: inline-block; padding: 12px 18px; border-radius: 10px; text-decoration: none;
+    font-weight: 600; font-size: 14px; border: 1px solid transparent; transition: transform .1s ease;
+  }
+  .btn:hover { transform: translateY(-1px); }
+  .btn-primary { background: var(--accent); color: white; }
+  .btn-ghost { color: var(--fg); border-color: var(--border); background: rgba(255,255,255,0.02); }
+
+  section { padding: 48px 0; border-top: 1px solid var(--border); }
+  h2 { font-size: 28px; margin: 0 0 18px; }
+  h3 { font-size: 16px; margin: 0 0 8px; }
+  p { color: var(--muted); margin: 0 0 12px; }
+
+  .grid { display: grid; gap: 18px; }
+  .grid-3 { grid-template-columns: repeat(3, 1fr); }
+  .grid-2 { grid-template-columns: repeat(2, 1fr); }
+  @media (max-width: 800px) { .grid-3, .grid-2 { grid-template-columns: 1fr; } }
+
+  .card {
+    background: var(--card); border: 1px solid var(--border); border-radius: 14px;
+    padding: 22px;
+  }
+  .card h3 { color: var(--fg); }
+  .badge {
+    display: inline-block; font-size: 11px; padding: 3px 8px; border-radius: 999px;
+    background: rgba(124,92,255,0.15); color: #c2b3ff; margin-right: 6px;
+  }
+  .stack { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+  .stack span {
+    font-size: 12px; padding: 4px 10px; border-radius: 999px;
+    background: rgba(37,208,164,0.10); color: var(--accent-2); border: 1px solid rgba(37,208,164,0.25);
+  }
+
+  ol.steps { counter-reset: s; padding: 0; list-style: none; margin: 0; }
+  ol.steps li {
+    counter-increment: s; padding: 16px 0 16px 56px; position: relative; border-bottom: 1px dashed var(--border);
+  }
+  ol.steps li:last-child { border-bottom: 0; }
+  ol.steps li::before {
+    content: counter(s); position: absolute; left: 0; top: 14px;
+    width: 36px; height: 36px; border-radius: 10px; background: var(--accent);
+    color: white; display: grid; place-items: center; font-weight: 700;
+  }
+
+  footer { padding: 36px 0 60px; color: var(--muted); font-size: 13px; text-align: center; }
+  a.link { color: var(--accent-2); text-decoration: none; }
+  a.link:hover { text-decoration: underline; }
+
+  code, pre {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 13px;
+  }
+  pre {
+    background: #0a0f24; border: 1px solid var(--border); border-radius: 10px;
+    padding: 14px 16px; overflow-x: auto; color: #d6dcff;
+  }
+</style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div class="brand">Mental Health<span>.AI</span></div>
+      <nav>
+        <a href="#problem">Problem</a>
+        <a href="#solution">Solution</a>
+        <a href="#how">How it works</a>
+        <a href="#stack">Stack</a>
+        <a href="#run">Run it</a>
+      </nav>
+    </header>
+
+    <section class="hero" style="border-top:0; padding-top: 24px;">
+      <span class="pill">YC Application Demo</span>
+      <h1>Natural-language access to every public mental health dataset.</h1>
+      <p class="lede">
+        Researchers, clinicians, and policymakers waste weeks navigating fragmented government data portals.
+        Our platform unifies <strong>CDC</strong> and <strong>SAMHSA</strong> mental-health datasets into a single
+        RAG-powered interface — ask a question, get an answer with citations, in seconds.
+      </p>
+      <div class="cta">
+        <a class="btn btn-primary" href="https://github.com/sriya19/alfa8-final-mental-health-platform">View on GitHub</a>
+        <a class="btn btn-ghost" href="#run">Run the Model</a>
+      </div>
+    </section>
+
+    <section id="problem">
+      <h2>The problem</h2>
+      <div class="grid grid-3">
+        <div class="card">
+          <h3>Data is scattered</h3>
+          <p>Mental-health data lives across CDC, SAMHSA, and 50+ state portals — each with its own schema, API, and quirks.</p>
+        </div>
+        <div class="card">
+          <h3>Discovery is broken</h3>
+          <p>Keyword search on Socrata catalogs misses 80% of relevant datasets. Researchers don't know what they don't know.</p>
+        </div>
+        <div class="card">
+          <h3>Analysis is slow</h3>
+          <p>Even after finding data, joining and querying it requires SQL, Python, and hours of cleaning per question.</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="solution">
+      <h2>What we built</h2>
+      <p>An end-to-end pipeline that ingests, indexes, and serves mental-health data as a conversational interface.</p>
+      <div class="grid grid-2">
+        <div class="card">
+          <h3>Intelligent ingestion</h3>
+          <p>An LLM agent generates 100+ semantic queries to discover relevant CDC/SAMHSA datasets, then ingests them as Parquet into S3-compatible storage.</p>
+          <div class="stack"><span>LLM-driven discovery</span><span>Socrata API</span><span>MinIO / Parquet</span></div>
+        </div>
+        <div class="card">
+          <h3>RAG-powered search</h3>
+          <p>Dataset metadata and content are embedded with OpenAI and stored in <code>pgvector</code>. Queries return ranked, cited answers grounded in real data.</p>
+          <div class="stack"><span>OpenAI embeddings</span><span>pgvector</span><span>Citations</span></div>
+        </div>
+        <div class="card">
+          <h3>Interactive UI</h3>
+          <p>A Streamlit app lets non-technical users search the catalog, preview datasets, and ask natural-language questions — no SQL required.</p>
+          <div class="stack"><span>Streamlit</span><span>Plotly</span><span>One-click ingest</span></div>
+        </div>
+        <div class="card">
+          <h3>Production-ready API</h3>
+          <p>FastAPI exposes every capability as a documented REST endpoint, ready to power downstream apps, dashboards, and clinical tools.</p>
+          <div class="stack"><span>FastAPI</span><span>Swagger</span><span>Docker</span></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="how">
+      <h2>How it works</h2>
+      <ol class="steps">
+        <li><strong>Discover</strong> — An LLM agent generates diverse mental-health queries and searches CDC + SAMHSA Socrata catalogs.</li>
+        <li><strong>Ingest</strong> — Each dataset is downloaded as Parquet and stored in MinIO under <code>raw/{org}/{uid}.parquet</code>.</li>
+        <li><strong>Index</strong> — Metadata and row chunks are embedded (1536-dim) and written to <code>pgvector</code> for similarity search.</li>
+        <li><strong>Query</strong> — A user asks a question. The RAG layer retrieves relevant chunks and an LLM generates a grounded answer with citations.</li>
+      </ol>
+    </section>
+
+    <section id="stack">
+      <h2>Tech stack</h2>
+      <div class="stack">
+        <span>FastAPI</span><span>PostgreSQL + pgvector</span><span>MinIO (S3)</span>
+        <span>Apache Parquet</span><span>OpenAI</span><span>Streamlit</span>
+        <span>Docker Compose</span><span>Socrata SODA</span>
+      </div>
+    </section>
+
+    <section id="run">
+      <h2>Run the model locally</h2>
+      <p>Spin up the full stack with Docker Compose, then launch the Streamlit UI:</p>
+<pre><code>git clone https://github.com/sriya19/alfa8-final-mental-health-platform.git
+cd alfa8-final-mental-health-platform
+cp .env.example .env   # add your OPENAI_API_KEY
+docker-compose up -d
+
+cd ui_app
+pip install streamlit requests pandas numpy plotly pydeck
+streamlit run streamlit_app.py
+# open http://localhost:8501</code></pre>
+      <p style="margin-top: 14px;">
+        Endpoints: UI <a class="link" href="http://localhost:8501">localhost:8501</a> ·
+        API docs <a class="link" href="http://localhost:8000/docs">localhost:8000/docs</a> ·
+        MinIO <a class="link" href="http://localhost:9001">localhost:9001</a>
+      </p>
+    </section>
+
+    <footer>
+      Built for the YC application. Source on
+      <a class="link" href="https://github.com/sriya19/alfa8-final-mental-health-platform">GitHub</a>.
+    </footer>
+  </div>
+</body>
+</html>
