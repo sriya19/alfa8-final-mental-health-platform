@@ -2,6 +2,24 @@
 
 A comprehensive mental health data platform that enables discovery, ingestion, and intelligent querying of mental health datasets from CDC and SAMHSA through a RAG (Retrieval-Augmented Generation) powered interface.
 
+## Run the Model
+
+Once the platform is started locally (see [Installation](#installation)), use these links to run and interact with the model:
+
+- **Streamlit UI (Run the Model)**: [http://localhost:8501](http://localhost:8501) — primary interface to run RAG queries and ask questions
+- **Backend API (Swagger Docs)**: [http://localhost:8000/docs](http://localhost:8000/docs) — invoke model endpoints directly (`/rag/query`, `/answer/query`, `/semantic/search`)
+- **Health Check**: [http://localhost:8000/health](http://localhost:8000/health)
+- **MinIO Console**: [http://localhost:9001](http://localhost:9001)
+
+To launch the UI page:
+
+```bash
+cd ui_app
+pip install streamlit requests pandas numpy plotly pydeck
+streamlit run streamlit_app.py
+# then open http://localhost:8501
+```
+
 ## Overview
 
 This platform provides a unified interface for working with mental health data from government sources. It combines:
