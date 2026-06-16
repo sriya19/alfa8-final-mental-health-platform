@@ -773,6 +773,7 @@ async def answer_question(request: AnswerRequest):
 
         # Get list of ingested + indexed dataset UIDs if filtering
         ingested_uids: List[str] = []
+        allowed_datasets = None
         if request.ingested_only:
                     # Optional: limit RAG to specific dataset(s)
             allowed_datasets = set(request.dataset_uids) if request.dataset_uids else None

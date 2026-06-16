@@ -32,6 +32,8 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: Optional[str] = None
     OPENAI_MODEL: Optional[str] = None
     OPENAI_BASE_URL: Optional[str] = None
+    EMBEDDING_MODEL: str = "text-embedding-3-small"
+    EMBEDDING_DIM: int = 1536
 
     # Allow unknown envs (so POSTGRES_* exists on Settings too)
     model_config = SettingsConfigDict(
@@ -57,10 +59,6 @@ class Settings(BaseSettings):
     @property
     def pg_password(self) -> str:
         return self.PG_PASSWORD or os.getenv("POSTGRES_PASSWORD") or "please-change"
-
-    @property
-    def pg_db(self) -> str:
-        return self.PG_DB or os.getenv("POSTGRES_DB") or "mh_catalog"
 
     @property
     def pg_db(self) -> str:
