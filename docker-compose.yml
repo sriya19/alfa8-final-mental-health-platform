@@ -102,26 +102,27 @@ services:
       retries: 3
     restart: unless-stopped
 
-  # Streamlit UI (optional - uncomment to run in Docker)
-  # streamlit:
-  #   container_name: streamlit-ui
-  #   build:
-  #     context: ./ui_app
-  #     dockerfile: Dockerfile
-  #   environment:
-  #     BACKEND_URL: http://backend:8000
-  #     POSTGRES_HOST: pg
-  #     POSTGRES_PORT: 5432
-  #     POSTGRES_DB: mh_catalog
-  #     POSTGRES_USER: app_user
-  #     POSTGRES_PASSWORD: app_user
-  #   ports:
-  #     - "8501:8501"
-  #   depends_on:
-  #     - backend
-  #   networks:
-  #     - mental-health-net
-  #   restart: unless-stopped
+  # Streamlit UI
+  streamlit:
+    container_name: streamlit-ui
+    build:
+      context: ./ui_app
+      dockerfile: Dockerfile
+    environment:
+      BACKEND_URL: http://backend:8000
+      POSTGRES_HOST: pg
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: mh_catalog
+      POSTGRES_USER: app_user
+      POSTGRES_PASSWORD: app_user
+    ports:
+      - "8501:8501"
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - mental-health-net
+    restart: unless-stopped
 
 networks:
   mental-health-net:

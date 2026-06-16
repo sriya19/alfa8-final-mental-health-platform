@@ -1,0 +1,10 @@
+streamlit>=1.29.0
+requests>=2.31.0
+pandas>=2.2.0
+numpy>=1.26,<2.0
+plotly>=5.18.0
+pydeck>=0.8.1b0
+python-dotenv>=1.0.0
+psycopg2-binary>=2.9.9
+openpyxl>=3.1.2
+xlsxwriter>=3.1.9
