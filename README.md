@@ -2,6 +2,18 @@
 
 A comprehensive mental health data platform that enables discovery, ingestion, and intelligent querying of mental health datasets from CDC and SAMHSA through a RAG (Retrieval-Augmented Generation) powered interface.
 
+## 🚀 Live Demo (Streamlit Cloud — no setup required)
+
+[![Open in Streamlit](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://share.streamlit.io/sriya19/alfa8-final-mental-health-platform/master/demo.py)
+
+> **One-click deploy your own copy:**
+> 1. Go to [share.streamlit.io](https://share.streamlit.io) and sign in with GitHub
+> 2. Click **"New app"** → select this repo → set **Main file**: `demo.py`
+> 3. Add **Secret**: `OPENAI_API_KEY = "sk-..."` under *Advanced settings → Secrets*
+> 4. Click **Deploy** — you get a public URL in ~2 minutes
+
+The demo app (`demo.py`) auto-discovers the full CDC + SAMHSA mental-health catalog on startup and lets anyone ask natural-language questions — no backend, database, or MinIO required. Nothing to download.
+
 ## Run the Model
 
 Once the platform is started locally (see [Installation](#installation)), use these links to run and interact with the model:
