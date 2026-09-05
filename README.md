@@ -12,7 +12,7 @@ A comprehensive mental health data platform that enables discovery, ingestion, a
 > 3. Add **Secret**: `OPENAI_API_KEY = "sk-..."` under *Advanced settings → Secrets*
 > 4. Click **Deploy** — you get a public URL in ~2 minutes
 
-The demo app (`demo.py`) queries CDC and SAMHSA data directly and runs RAG entirely in-session — no backend, database, or MinIO required.
+The demo app (`demo.py`) auto-discovers the full CDC + SAMHSA mental-health catalog on startup and lets anyone ask natural-language questions — no backend, database, or MinIO required. Nothing to download.
 
 ## Run the Model
 

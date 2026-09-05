@@ -1,68 +1,120 @@
 """
-Mental Health Data Platform — Standalone Demo
-Runs entirely from Streamlit Cloud: queries Socrata + OpenAI directly.
-No backend, no PostgreSQL, no MinIO required.
-Set OPENAI_API_KEY as a Streamlit secret to enable AI answers.
+Mental Health Data Platform — Ask Anything Agent
+=================================================
+A hosted Streamlit app that gives anyone access to the full CDC + SAMHSA
+mental-health data catalog via natural-language questions. No local setup,
+no data download, no PostgreSQL, no MinIO required.
+
+How it works:
+  1. On first load, the app discovers every mental-health dataset in the
+     CDC + SAMHSA Socrata catalogs across ~30 topic queries (~500 datasets).
+  2. It embeds each dataset's metadata (title + description + columns) with
+     OpenAI and keeps the index in Streamlit's resource cache.
+  3. When a user asks a question, the app semantic-matches it against the
+     catalog, fetches fresh sample rows live from Socrata for the top-matching
+     datasets, and answers with citations.
+
+Deploy on Streamlit Community Cloud (free):
+  - Main file: demo.py
+  - Secret:    OPENAI_API_KEY = "sk-..."
 """
 
-import streamlit as st
-import pandas as pd
-import numpy as np
-import requests
-import json
+from __future__ import annotations
+
 import os
-from typing import List, Dict, Any, Optional
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Any, Dict, List, Optional, Tuple
+
+import numpy as np
+import pandas as pd
+import requests
+import streamlit as st
 
 # ── Page config ────────────────────────────────────────────────────────────────
 st.set_page_config(
-    page_title="🧠 Mental Health Data Platform",
-    page_icon="🏥",
+    page_title="Mental Health Data — Ask Anything",
+    page_icon="🧠",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
-# ── OpenAI key (from Streamlit secrets or env var) ─────────────────────────────
-OPENAI_API_KEY = st.secrets.get("OPENAI_API_KEY", os.getenv("OPENAI_API_KEY", ""))
-OPENAI_MODEL = "gpt-4o-mini"
-EMBED_MODEL = "text-embedding-3-small"
-EMBED_DIM = 1536
+# ── Config ─────────────────────────────────────────────────────────────────────
+OPENAI_API_KEY: str = st.secrets.get("OPENAI_API_KEY", os.getenv("OPENAI_API_KEY", ""))
+OPENAI_MODEL: str = "gpt-4o-mini"
+EMBED_MODEL: str = "text-embedding-3-small"
+EMBED_DIM: int = 1536
 
-# ── Socrata catalog domains ─────────────────────────────────────────────────────
-DOMAINS = {
+DOMAINS: Dict[str, str] = {
     "CDC": "data.cdc.gov",
     "SAMHSA": "data.samhsa.gov",
 }
 
-# ── CSS ─────────────────────────────────────────────────────────────────────────
-st.markdown("""
+# Diverse mental-health topic seeds — used to sweep the Socrata catalogs so the
+# resulting index covers "everything" (depression, anxiety, suicide, substance
+# use, youth, veterans, opioids, access to care, disparities, etc.)
+SEED_QUERIES: List[str] = [
+    "mental health", "depression", "anxiety", "suicide", "self harm",
+    "substance abuse", "substance use disorder", "opioid", "overdose",
+    "alcohol use", "drug use", "tobacco cessation",
+    "youth mental health", "adolescent depression", "child behavioral health",
+    "adult mental illness", "serious mental illness", "psychological distress",
+    "veterans mental health", "PTSD", "trauma",
+    "mental health treatment", "behavioral health services", "psychiatric",
+    "mental health workforce", "access to care", "insurance coverage mental health",
+    "mental health disparities", "rural mental health",
+    "loneliness", "wellbeing", "stress", "sleep",
+    "eating disorder", "ADHD", "bipolar", "schizophrenia",
+]
+
+DATASETS_PER_QUERY_PER_ORG: int = 10
+CATALOG_TTL_SECONDS: int = 60 * 60 * 6   # rebuild the catalog every 6 hours
+SAMPLE_ROWS_FOR_ANSWER: int = 60         # how many rows to fetch per matched dataset
+TOP_DATASETS_FOR_ANSWER: int = 3         # number of datasets to consult per question
+
+
+# ── Styles ─────────────────────────────────────────────────────────────────────
+st.markdown(
+    """
 <style>
-[data-testid="stSidebar"] { background: linear-gradient(180deg,#0f0f1e,#1a1a2e); }
-[data-testid="stSidebar"] * { color: #e2e8f0 !important; }
-.metric-card {
-    background: rgba(255,255,255,0.05);
-    border-radius: 12px;
-    padding: 16px;
-    border: 1px solid rgba(102,126,234,0.3);
-    margin-bottom: 8px;
+[data-testid="stSidebar"] { background: linear-gradient(180deg,#0b1020,#141a3a); }
+[data-testid="stSidebar"] * { color: #e7ecff !important; }
+.big-hero {
+    background: linear-gradient(135deg,#1a1f4a 0%,#2b1e5e 100%);
+    border: 1px solid rgba(124,92,255,0.35);
+    border-radius: 18px; padding: 28px 32px; margin-bottom: 24px;
 }
-.result-card {
-    background: rgba(255,255,255,0.04);
-    border-radius: 10px;
-    padding: 14px;
-    border-left: 3px solid #667eea;
-    margin-bottom: 10px;
+.big-hero h1 { margin: 0 0 6px; font-size: 30px; }
+.big-hero p  { margin: 0; color: #b8c1ee; }
+.dataset-card {
+    background: rgba(124,92,255,0.06);
+    border: 1px solid rgba(124,92,255,0.20);
+    border-radius: 12px; padding: 12px 14px; margin-bottom: 8px;
+}
+.dataset-card b { color: #d7ceff; }
+.answer-box {
+    background: rgba(37,208,164,0.06);
+    border: 1px solid rgba(37,208,164,0.30);
+    border-radius: 12px; padding: 18px 20px; margin: 10px 0 22px;
+    font-size: 16px; line-height: 1.55;
+}
+.metric-pill {
+    display: inline-block; padding: 4px 10px; border-radius: 999px;
+    background: rgba(124,92,255,0.15); color: #c2b3ff;
+    font-size: 12px; margin-right: 6px;
 }
 </style>
-""", unsafe_allow_html=True)
+    """,
+    unsafe_allow_html=True,
+)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# Socrata helpers
+# Socrata catalog + data fetch
 # ══════════════════════════════════════════════════════════════════════════════
 
-def search_socrata_catalog(query: str, org: str, limit: int = 15) -> List[Dict]:
-    """Search the Socrata unified catalog for datasets."""
-    domain = DOMAINS.get(org, "data.cdc.gov")
+def _search_one(query: str, org: str, limit: int) -> List[Dict[str, Any]]:
+    domain = DOMAINS[org]
     try:
         resp = requests.get(
             "https://api.us.socrata.com/api/catalog/v1",
@@ -70,335 +122,292 @@ def search_socrata_catalog(query: str, org: str, limit: int = 15) -> List[Dict]:
             timeout=20,
         )
         resp.raise_for_status()
-        results = []
-        for item in resp.json().get("results", []):
-            r = item.get("resource", {})
-            uid = r.get("id", "")
-            if uid:
-                results.append({
-                    "uid": uid,
-                    "name": r.get("name", "Unknown"),
-                    "description": (r.get("description") or "")[:300],
-                    "org": org,
-                    "link": item.get("link") or f"https://{domain}/d/{uid}",
-                    "rows": r.get("page_views", {}).get("page_views_total", "?"),
-                })
-        return results
-    except Exception as e:
-        st.error(f"Catalog search failed: {e}")
+    except Exception:
         return []
 
+    out: List[Dict[str, Any]] = []
+    for item in resp.json().get("results", []):
+        r = item.get("resource", {}) or {}
+        uid = r.get("id", "")
+        if not uid:
+            continue
+        columns = r.get("columns_name", []) or []
+        out.append({
+            "uid": uid,
+            "org": org,
+            "name": (r.get("name") or "Untitled").strip(),
+            "description": ((r.get("description") or "") or "").strip()[:800],
+            "columns": columns[:40],
+            "link": item.get("link") or f"https://{domain}/d/{uid}",
+        })
+    return out
 
-def fetch_dataset_preview(uid: str, org: str, limit: int = 200) -> pd.DataFrame:
-    """Fetch rows from Socrata using the SODA API."""
+
+@st.cache_data(ttl=CATALOG_TTL_SECONDS, show_spinner=False)
+def discover_catalog() -> List[Dict[str, Any]]:
+    """Sweep CDC + SAMHSA across all seed queries and return unique datasets."""
+    seen: Dict[str, Dict[str, Any]] = {}
+    tasks: List[Tuple[str, str]] = [(q, org) for q in SEED_QUERIES for org in DOMAINS]
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        futures = {
+            pool.submit(_search_one, q, org, DATASETS_PER_QUERY_PER_ORG): (q, org)
+            for q, org in tasks
+        }
+        for fut in as_completed(futures):
+            for ds in fut.result():
+                seen.setdefault(ds["uid"], ds)
+    return list(seen.values())
+
+
+def _metadata_text(ds: Dict[str, Any]) -> str:
+    cols = ", ".join(ds.get("columns", [])) or "(columns unknown)"
+    return (
+        f"[{ds['org']}] {ds['name']}\n"
+        f"Description: {ds['description'] or '(no description)'}\n"
+        f"Columns: {cols}"
+    )
+
+
+def fetch_sample_rows(uid: str, org: str, limit: int = SAMPLE_ROWS_FOR_ANSWER) -> pd.DataFrame:
     domain = DOMAINS.get(org, "data.cdc.gov")
     try:
         resp = requests.get(
             f"https://{domain}/resource/{uid}.json",
             params={"$limit": limit},
-            timeout=30,
+            timeout=25,
         )
         resp.raise_for_status()
         return pd.DataFrame(resp.json())
-    except Exception as e:
-        st.warning(f"Could not fetch dataset: {e}")
+    except Exception:
         return pd.DataFrame()
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# OpenAI helpers
+# OpenAI
 # ══════════════════════════════════════════════════════════════════════════════
 
 def _openai_headers() -> Dict[str, str]:
     return {"Authorization": f"Bearer {OPENAI_API_KEY}", "Content-Type": "application/json"}
 
 
-def embed_texts(texts: List[str]) -> List[List[float]]:
-    """Create embeddings via OpenAI API."""
+def embed_texts(texts: List[str], batch_size: int = 96) -> np.ndarray:
+    """Batch-embed texts. Returns an (N, EMBED_DIM) numpy array."""
     if not OPENAI_API_KEY:
-        # Random fallback for demo when no key
-        return [np.random.rand(EMBED_DIM).tolist() for _ in texts]
-    resp = requests.post(
-        "https://api.openai.com/v1/embeddings",
-        headers=_openai_headers(),
-        json={"model": EMBED_MODEL, "input": texts},
-        timeout=30,
-    )
-    resp.raise_for_status()
-    return [d["embedding"] for d in resp.json()["data"]]
+        return np.random.rand(len(texts), EMBED_DIM).astype(np.float32)
+    out: List[List[float]] = []
+    for i in range(0, len(texts), batch_size):
+        batch = texts[i : i + batch_size]
+        resp = requests.post(
+            "https://api.openai.com/v1/embeddings",
+            headers=_openai_headers(),
+            json={"model": EMBED_MODEL, "input": batch},
+            timeout=60,
+        )
+        resp.raise_for_status()
+        out.extend(d["embedding"] for d in resp.json()["data"])
+    return np.asarray(out, dtype=np.float32)
 
 
-def cosine_similarity(a: List[float], b: List[float]) -> float:
-    va, vb = np.array(a), np.array(b)
-    denom = np.linalg.norm(va) * np.linalg.norm(vb)
-    return float(np.dot(va, vb) / denom) if denom > 0 else 0.0
-
-
-def chat_completion(prompt: str, system: str = "You are a helpful public health data analyst.") -> str:
-    """Single-turn chat via OpenAI."""
+def chat_completion(prompt: str, system: str) -> str:
     if not OPENAI_API_KEY:
-        return "⚠️ No OpenAI API key configured. Add `OPENAI_API_KEY` to your Streamlit secrets to enable AI answers."
+        return "⚠️ OpenAI key not configured. Add `OPENAI_API_KEY` to Streamlit secrets."
     resp = requests.post(
         "https://api.openai.com/v1/chat/completions",
         headers=_openai_headers(),
         json={
             "model": OPENAI_MODEL,
-            "messages": [{"role": "system", "content": system}, {"role": "user", "content": prompt}],
-            "temperature": 0.3,
-            "max_tokens": 800,
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": prompt},
+            ],
+            "temperature": 0.2,
+            "max_tokens": 900,
         },
-        timeout=60,
+        timeout=90,
     )
     resp.raise_for_status()
     return resp.json()["choices"][0]["message"]["content"].strip()
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# In-session RAG
+# Catalog index — built once, cached across sessions
 # ══════════════════════════════════════════════════════════════════════════════
 
-def build_chunks_from_df(df: pd.DataFrame, dataset_name: str, chunk_size: int = 30) -> List[Dict]:
-    """Convert a DataFrame into text chunks for RAG."""
-    chunks = []
-    cols = list(df.columns)
-    for i in range(0, min(len(df), 300), chunk_size):
-        sub = df.iloc[i : i + chunk_size]
-        lines = [f"Dataset: {dataset_name}", f"Rows {i+1}–{min(i+chunk_size, len(df))}:", ""]
-        for _, row in sub.iterrows():
-            row_str = " | ".join(
-                f"{k}: {v}" for k, v in row.items()
-                if pd.notna(v) and str(v).strip()
-            )
-            if row_str:
-                lines.append(row_str)
-        chunks.append({"text": "\n".join(lines), "source": dataset_name, "rows": (i, i + chunk_size)})
-    return chunks
-
-
-def rag_index(chunks: List[Dict]) -> List[Dict]:
-    """Embed all chunks and return them with embeddings."""
-    texts = [c["text"] for c in chunks]
+@st.cache_resource(show_spinner=False)
+def build_catalog_index() -> Dict[str, Any]:
+    """Discover every mental-health dataset and embed its metadata."""
+    datasets = discover_catalog()
+    if not datasets:
+        return {"datasets": [], "embeddings": np.zeros((0, EMBED_DIM), dtype=np.float32)}
+    texts = [_metadata_text(d) for d in datasets]
     embeddings = embed_texts(texts)
-    for c, emb in zip(chunks, embeddings):
-        c["embedding"] = emb
-    return chunks
+    # L2-normalize once so ranking = a dot product
+    norms = np.linalg.norm(embeddings, axis=1, keepdims=True)
+    norms[norms == 0] = 1.0
+    embeddings = embeddings / norms
+    return {"datasets": datasets, "embeddings": embeddings}
 
 
-def rag_search(query: str, indexed_chunks: List[Dict], k: int = 5) -> List[Dict]:
-    """Find the k most relevant chunks for query."""
-    [q_emb] = embed_texts([query])
-    scored = [(cosine_similarity(q_emb, c["embedding"]), c) for c in indexed_chunks]
-    scored.sort(key=lambda x: x[0], reverse=True)
-    return [c for _, c in scored[:k]]
-
-
-def rag_answer(question: str, top_chunks: List[Dict]) -> str:
-    context = "\n\n".join(f"[Source {i+1}]\n{c['text'][:600]}" for i, c in enumerate(top_chunks))
-    prompt = f"""You are an expert mental health data analyst.
-Answer the question using ONLY the provided context data.
-Be specific — cite numbers, trends, and locations from the data.
-If the answer isn't in the context, say so clearly.
-
-Context:
-{context}
-
-Question: {question}
-
-Answer:"""
-    return chat_completion(prompt)
+def rank_datasets(question: str, index: Dict[str, Any], k: int) -> List[Tuple[float, Dict[str, Any]]]:
+    if not index["datasets"]:
+        return []
+    q_vec = embed_texts([question])[0]
+    n = np.linalg.norm(q_vec)
+    if n == 0:
+        return []
+    q_vec = q_vec / n
+    scores = index["embeddings"] @ q_vec
+    top_idx = np.argsort(-scores)[:k]
+    return [(float(scores[i]), index["datasets"][i]) for i in top_idx]
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# Session state
+# Answering
 # ══════════════════════════════════════════════════════════════════════════════
 
-def _init_state():
-    defaults = {
-        "search_results": [],
-        "selected_dataset": None,
-        "preview_df": pd.DataFrame(),
-        "rag_index": [],
-        "rag_indexed_name": "",
-        "chat_history": [],
-    }
-    for k, v in defaults.items():
-        if k not in st.session_state:
-            st.session_state[k] = v
+def _dataframe_to_context(df: pd.DataFrame, name: str, max_rows: int = 40) -> str:
+    if df.empty:
+        return f"[{name}] (no rows returned)"
+    df = df.head(max_rows)
+    lines = [f"[{name}]  columns: {', '.join(df.columns[:20])}"]
+    for _, row in df.iterrows():
+        cells = [f"{k}={v}" for k, v in row.items() if pd.notna(v) and str(v).strip()][:12]
+        if cells:
+            lines.append(" | ".join(cells))
+    return "\n".join(lines)
 
-_init_state()
+
+def answer_question(question: str, index: Dict[str, Any]) -> Dict[str, Any]:
+    ranked = rank_datasets(question, index, TOP_DATASETS_FOR_ANSWER)
+    if not ranked:
+        return {"answer": "No datasets available.", "sources": [], "contexts": []}
+
+    contexts: List[str] = []
+    sources: List[Dict[str, Any]] = []
+    for score, ds in ranked:
+        df = fetch_sample_rows(ds["uid"], ds["org"])
+        contexts.append(_dataframe_to_context(df, ds["name"]))
+        sources.append({"score": score, "dataset": ds, "rows": len(df)})
+
+    system = (
+        "You are an expert public-health data analyst. Answer the user's question "
+        "using ONLY the provided dataset excerpts. Cite the dataset names in "
+        "brackets. If the data does not directly answer the question, say so and "
+        "explain what the data *does* show."
+    )
+    prompt = (
+        f"Question: {question}\n\n"
+        f"Data excerpts from CDC and SAMHSA:\n\n"
+        + "\n\n---\n\n".join(contexts)
+        + "\n\nAnswer:"
+    )
+    answer = chat_completion(prompt, system)
+    return {"answer": answer, "sources": sources, "contexts": contexts}
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# UI
+# ══════════════════════════════════════════════════════════════════════════════
+
 # Sidebar
-# ══════════════════════════════════════════════════════════════════════════════
-
 with st.sidebar:
-    st.markdown("## 🧠 Mental Health Platform")
-    st.markdown("**RAG-powered exploration of CDC & SAMHSA mental health datasets**")
+    st.markdown("## 🧠 Mental Health Data")
+    st.caption("Ask any question about US mental-health statistics.")
     st.divider()
 
     if OPENAI_API_KEY:
         st.success("✅ OpenAI connected")
     else:
-        st.warning("⚠️ No OpenAI key — add `OPENAI_API_KEY` to Streamlit secrets for AI features")
+        st.error("❌ Add `OPENAI_API_KEY` to Streamlit secrets")
+
+    st.markdown("### Data sources")
+    st.markdown("- **CDC** — data.cdc.gov\n- **SAMHSA** — data.samhsa.gov")
 
     st.divider()
-    st.markdown("### Data Sources")
-    st.markdown("- 🏛️ **CDC** — data.cdc.gov")
-    st.markdown("- 🏥 **SAMHSA** — data.samhsa.gov")
-    st.divider()
-    st.markdown("### How to use")
-    st.markdown("1. **Search** for datasets\n2. **Preview** a dataset\n3. **Index** it for RAG\n4. **Ask questions** about the data")
+    if st.button("🔄 Rebuild catalog"):
+        discover_catalog.clear()
+        build_catalog_index.clear()
+        st.rerun()
 
+# Hero
+st.markdown(
+    """
+<div class="big-hero">
+  <h1>🧠 Ask anything about US mental health data</h1>
+  <p>Powered by the full CDC and SAMHSA public data catalogs. Nothing to install — no data to download. Just ask.</p>
+</div>
+    """,
+    unsafe_allow_html=True,
+)
 
-# ══════════════════════════════════════════════════════════════════════════════
-# Main
-# ══════════════════════════════════════════════════════════════════════════════
+# Build (or load cached) catalog
+with st.spinner("Loading the CDC + SAMHSA mental-health catalog… (first load: ~1 min, then cached)"):
+    t0 = time.time()
+    index = build_catalog_index()
+    build_ms = (time.time() - t0) * 1000
 
-st.title("🧠 Mental Health Data Platform")
-st.caption("Explore CDC & SAMHSA datasets with AI-powered question answering")
+n_datasets = len(index["datasets"])
+if n_datasets == 0:
+    st.error("Could not load the catalog. Try the **Rebuild catalog** button in the sidebar.")
+    st.stop()
 
-tab_search, tab_preview, tab_ask = st.tabs(["🔍 Search Datasets", "📊 Preview & Index", "💬 Ask Questions"])
+st.markdown(
+    f'<span class="metric-pill">📚 {n_datasets} datasets indexed</span>'
+    f'<span class="metric-pill">⚡ loaded in {build_ms/1000:.1f}s</span>'
+    f'<span class="metric-pill">🏛️ CDC + SAMHSA</span>',
+    unsafe_allow_html=True,
+)
 
+# Example prompts
+st.write("")
+example_cols = st.columns(4)
+examples = [
+    "What are the trends in youth depression?",
+    "Which states have the highest opioid overdose rates?",
+    "How has veteran suicide changed over time?",
+    "What's the gap in mental-health treatment access by race?",
+]
+for col, ex in zip(example_cols, examples):
+    with col:
+        if st.button(ex, use_container_width=True):
+            st.session_state["question"] = ex
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Tab 1 — Search
-# ──────────────────────────────────────────────────────────────────────────────
-with tab_search:
-    st.subheader("Search Mental Health Datasets")
+# Main input
+question = st.text_input(
+    "Your question",
+    key="question",
+    placeholder="e.g. What percentage of adolescents received mental-health services last year?",
+)
 
-    col1, col2, col3 = st.columns([3, 1, 1])
-    with col1:
-        query = st.text_input("Search query", placeholder="e.g. youth depression, substance abuse, suicide rates")
-    with col2:
-        org = st.selectbox("Source", list(DOMAINS.keys()))
-    with col3:
-        limit = st.slider("Max results", 5, 30, 12)
+if st.button("💬 Answer", type="primary") and question.strip():
+    with st.spinner("Finding the most relevant datasets and generating an answer…"):
+        result = answer_question(question, index)
 
-    if st.button("🔍 Search", type="primary"):
-        with st.spinner(f"Searching {org} catalog..."):
-            st.session_state.search_results = search_socrata_catalog(query, org, limit)
+    st.markdown(f'<div class="answer-box">{result["answer"]}</div>', unsafe_allow_html=True)
 
-    results = st.session_state.search_results
-    if results:
-        st.markdown(f"**{len(results)} datasets found**")
-        for i, ds in enumerate(results):
-            with st.container():
-                st.markdown(f"""<div class="result-card">
-<b>{ds['name']}</b> &nbsp;|&nbsp; <code>{ds['uid']}</code> &nbsp;|&nbsp; {ds['org']}
-<br><small>{ds['description'] or 'No description'}</small>
-</div>""", unsafe_allow_html=True)
-                col_a, col_b = st.columns([1, 4])
-                with col_a:
-                    if st.button("Load this dataset →", key=f"load_{i}"):
-                        st.session_state.selected_dataset = ds
-                        st.session_state.preview_df = pd.DataFrame()
-                        st.session_state.rag_index = []
-                        st.success(f"Selected: **{ds['name']}** — go to the Preview & Index tab")
-                with col_b:
-                    st.markdown(f"[Open on {ds['org']} ↗]({ds['link']})")
-    elif not query:
-        st.info("Enter a query above to search the dataset catalog.")
+    st.markdown("### 📚 Sources consulted")
+    for src in result["sources"]:
+        ds = src["dataset"]
+        st.markdown(
+            f"""<div class="dataset-card">
+<b>{ds['name']}</b> <span class="metric-pill">{ds['org']}</span>
+<span class="metric-pill">match {src['score']:.2f}</span>
+<span class="metric-pill">{src['rows']} rows sampled</span>
+<br><small>{(ds['description'] or '(no description)')[:280]}</small>
+<br><a href="{ds['link']}" target="_blank">Open on {ds['org']} ↗</a>
+</div>""",
+            unsafe_allow_html=True,
+        )
 
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Tab 2 — Preview & Index
-# ──────────────────────────────────────────────────────────────────────────────
-with tab_preview:
-    ds = st.session_state.selected_dataset
-
-    if not ds:
-        st.info("Select a dataset from the Search tab first.")
-    else:
-        st.subheader(f"📊 {ds['name']}")
-        st.caption(f"Source: {ds['org']} | ID: `{ds['uid']}`")
-        col_a, col_b = st.columns(2)
-        with col_a:
-            n_rows = st.slider("Rows to fetch", 50, 1000, 200, step=50)
-        with col_b:
-            st.markdown(f"[View on {ds['org']} ↗]({ds['link']})")
-
-        if st.button("⬇️ Load / Refresh Preview", type="primary"):
-            with st.spinner("Fetching data from Socrata..."):
-                df = fetch_dataset_preview(ds["uid"], ds["org"], n_rows)
-                st.session_state.preview_df = df
-                st.session_state.rag_index = []
-
-        df = st.session_state.preview_df
-        if not df.empty:
-            st.markdown(f"**{len(df)} rows × {len(df.columns)} columns**")
-            st.dataframe(df.head(50), use_container_width=True)
-
-            # Quick visualisation
-            num_cols = df.select_dtypes(include="number").columns.tolist()
-            if num_cols:
-                with st.expander("📈 Quick chart"):
-                    import plotly.express as px
-                    col_to_plot = st.selectbox("Column", num_cols, key="chart_col")
-                    fig = px.histogram(df, x=col_to_plot, title=f"Distribution of {col_to_plot}")
-                    st.plotly_chart(fig, use_container_width=True)
-
-            # Index for RAG
-            st.divider()
-            st.markdown("### 🤖 Index for AI Q&A")
-            st.caption("Splits the dataset into text chunks and creates semantic embeddings so you can ask natural-language questions.")
-            if st.button("⚡ Index this dataset for RAG", type="secondary"):
-                with st.spinner("Chunking + embedding (may take 30–60 s)..."):
-                    try:
-                        chunks = build_chunks_from_df(df, ds["name"])
-                        indexed = rag_index(chunks)
-                        st.session_state.rag_index = indexed
-                        st.session_state.rag_indexed_name = ds["name"]
-                        st.success(f"✅ Indexed {len(indexed)} chunks from **{ds['name']}** — go to Ask Questions tab!")
-                    except Exception as e:
-                        st.error(f"Indexing failed: {e}")
-
-            if st.session_state.rag_index and st.session_state.rag_indexed_name == ds["name"]:
-                st.success(f"✅ {len(st.session_state.rag_index)} chunks indexed and ready")
-        else:
-            st.info("Click 'Load / Refresh Preview' to fetch data.")
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Tab 3 — Ask Questions
-# ──────────────────────────────────────────────────────────────────────────────
-with tab_ask:
-    st.subheader("💬 Ask Questions About Your Data")
-
-    idx = st.session_state.rag_index
-    name = st.session_state.rag_indexed_name
-
-    if not idx:
-        st.info("Load and index a dataset from the **Preview & Index** tab first.")
-    else:
-        st.success(f"🗄️ Active dataset: **{name}** ({len(idx)} chunks indexed)")
-        st.divider()
-
-        question = st.text_input("Your question", placeholder="e.g. What are the top states for depression? What trends exist across years?")
-        k = st.slider("Chunks to retrieve", 3, 10, 5)
-
-        if st.button("💬 Get AI Answer", type="primary"):
-            if not question.strip():
-                st.warning("Please enter a question.")
-            else:
-                with st.spinner("Searching relevant data + generating answer..."):
-                    try:
-                        top_chunks = rag_search(question, idx, k)
-                        answer = rag_answer(question, top_chunks)
-                        st.session_state.chat_history.append({"q": question, "a": answer, "sources": top_chunks})
-                    except Exception as e:
-                        st.error(f"Error: {e}")
-
-        # Display chat history newest-first
-        for entry in reversed(st.session_state.chat_history):
-            st.markdown(f"**Q:** {entry['q']}")
-            st.markdown(f"**A:** {entry['a']}")
-            with st.expander("📄 Retrieved data chunks"):
-                for i, c in enumerate(entry["sources"]):
-                    st.text(f"[Chunk {i+1} — rows {c.get('rows','?')}]\n{c['text'][:400]}")
+    with st.expander("🔍 Raw data excerpts used"):
+        for ctx in result["contexts"]:
+            st.text(ctx[:1500])
             st.divider()
 
-        if st.session_state.chat_history:
-            if st.button("🗑️ Clear history"):
-                st.session_state.chat_history = []
-                st.rerun()
+# Catalog browser (collapsed by default)
+with st.expander(f"📖 Browse the full catalog of {n_datasets} datasets"):
+    df = pd.DataFrame([
+        {"Org": d["org"], "Name": d["name"], "UID": d["uid"], "Link": d["link"]}
+        for d in index["datasets"]
+    ])
+    st.dataframe(df, use_container_width=True, hide_index=True)

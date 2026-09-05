@@ -126,9 +126,12 @@
         RAG-powered interface — ask a question, get an answer with citations, in seconds.
       </p>
       <div class="cta">
-        <a class="btn btn-primary" href="https://github.com/sriya19/alfa8-final-mental-health-platform">View on GitHub</a>
-        <a class="btn btn-ghost" href="#run">Run the Model</a>
+        <a class="btn btn-primary" href="https://share.streamlit.io/sriya19/alfa8-final-mental-health-platform/master/demo.py">🚀 Try the live demo</a>
+        <a class="btn btn-ghost" href="https://github.com/sriya19/alfa8-final-mental-health-platform">View on GitHub</a>
       </div>
+      <p style="margin-top:14px;color:#c2b3ff;font-size:13px;">
+        The live app auto-loads the full CDC + SAMHSA mental-health catalog on startup — no downloads, no setup. Just ask a question.
+      </p>
     </section>
 
     <section id="problem">
@@ -196,22 +199,28 @@
     </section>
 
     <section id="run">
-      <h2>Run the model locally</h2>
-      <p>Spin up the full stack with Docker Compose, then launch the Streamlit UI:</p>
+      <h2>Run the model</h2>
+      <h3 style="color:#c2b3ff;">Option 1 — Use the hosted app (recommended)</h3>
+      <p>
+        Just visit <a class="link" href="https://share.streamlit.io/sriya19/alfa8-final-mental-health-platform/master/demo.py">the live demo</a>.
+        The app auto-loads the entire CDC + SAMHSA mental-health catalog on startup and answers natural-language questions live. Nothing to install.
+      </p>
+
+      <h3 style="color:#c2b3ff;margin-top:24px;">Option 2 — Deploy your own copy (free, 2 minutes)</h3>
+      <ol style="color:var(--muted);">
+        <li>Go to <a class="link" href="https://share.streamlit.io">share.streamlit.io</a> and sign in with GitHub</li>
+        <li>Click <b>New app</b> → pick this repo → set <b>Main file</b> to <code>demo.py</code></li>
+        <li>Under <b>Advanced settings → Secrets</b>, add: <code>OPENAI_API_KEY = "sk-..."</code></li>
+        <li>Click <b>Deploy</b> — you get a public URL in ~2 min</li>
+      </ol>
+
+      <h3 style="color:#c2b3ff;margin-top:24px;">Option 3 — Run the full stack locally</h3>
 <pre><code>git clone https://github.com/sriya19/alfa8-final-mental-health-platform.git
 cd alfa8-final-mental-health-platform
 cp .env.example .env   # add your OPENAI_API_KEY
 docker-compose up -d
-
-cd ui_app
-pip install streamlit requests pandas numpy plotly pydeck
-streamlit run streamlit_app.py
-# open http://localhost:8501</code></pre>
-      <p style="margin-top: 14px;">
-        Endpoints: UI <a class="link" href="http://localhost:8501">localhost:8501</a> ·
-        API docs <a class="link" href="http://localhost:8000/docs">localhost:8000/docs</a> ·
-        MinIO <a class="link" href="http://localhost:9001">localhost:9001</a>
-      </p>
+# open http://localhost:8501 (Streamlit UI)
+#      http://localhost:8000/docs (API)</code></pre>
     </section>
 
     <footer>
